@@ -132,17 +132,9 @@ Preferencje są zapisywane automatycznie i przywracane przy następnym uruchomie
 
 - Jeśli pliki w folderze `data/` są uszkodzone, usuń je - aplikacja utworzy nowe z domyślnymi wartościami
 
-### Problemy z PyQt5
-
-- Na niektórych systemach Linux może być wymagane: `sudo apt-get install python3-pyqt5`
-
-## Licencja
-
-[Określ licencję - np. MIT, GPL, itp.]
-
 ## Autor
 
-[Twoje imię/nazwa]
+Konrad Małecki
 
 ## Wsparcie
 
