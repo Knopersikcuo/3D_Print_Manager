@@ -23,8 +23,8 @@ Aplikacja do zarządzania filamentami i kalkulacji cen wydruków 3D. Umożliwia 
 ### 1. Sklonuj repozytorium
 
 ```bash
-git clone https://github.com/twoj-username/print-manager.git
-cd print-manager
+git clone https://github.com/Knopersikcuo/3D_Print_Manager.git
+cd 3D_Print_Manager
 ```
 
 ### 2. Zainstaluj zależności
