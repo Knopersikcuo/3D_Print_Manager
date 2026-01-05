@@ -18,9 +18,14 @@ class BrandsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.editing_brand_id = None  # Track which brand is being edited
+        self.main_window = None  # Will be set for refreshing calculator
         self.init_ui()
         # Register for language updates
         register_language_callback(self.update_translations)
+    
+    def set_main_window(self, main_window):
+        """Set reference to main window for refreshing calculator tab."""
+        self.main_window = main_window
 
     def init_ui(self):
         """Initialize the dialog UI."""
@@ -184,6 +189,9 @@ class BrandsDialog(QDialog):
                 # Add new brand
                 add_brand(name=name, spool_weight=self.weight_input.value())
                 QMessageBox.information(self, t("success"), t("brand_added").format(name=name))
+                # Refresh calculator tab filament list (brands may be needed for filament creation)
+                if self.main_window:
+                    self.main_window.refresh_calculator_filaments()
             
             self.name_input.clear()
             self.weight_input.setValue(150)

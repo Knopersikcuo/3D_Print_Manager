@@ -27,7 +27,8 @@ from utils.price_calculator import PriceCalculator, ConfigManager
 from utils.translations import (
     t, toggle_language, register_language_callback, get_language,
     cycle_currency, get_currency, register_currency_callback, format_currency as fmt_currency,
-    load_preferences
+    load_preferences, get_font_size, set_font_size, register_font_size_callback,
+    get_font_size_px, FONT_SIZES
 )
 
 
@@ -99,7 +100,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("3D Print Manager")
         self.setMinimumWidth(1400)
-        self.setMinimumHeight(800)
+        self.setMinimumHeight(850)  # Increased by 50px as requested
         
         # Load user preferences (language and currency)
         load_preferences()
@@ -124,6 +125,7 @@ class MainWindow(QMainWindow):
         
         self.calculator_tab = CalculatorTab(self.config, self)
         self.inventory_tab = InventoryTab(self)
+        self.inventory_tab.set_main_window(self)  # Pass reference for refreshing calculator
         self.history_tab = HistoryTab(self)
         
         # New structure: header + content
@@ -157,39 +159,7 @@ class MainWindow(QMainWindow):
         self.currency_combo.setMinimumHeight(36)
         self._populate_currency_combo()
         self.currency_combo.currentTextChanged.connect(self.on_currency_changed)
-        self.currency_combo.setStyleSheet("""
-            QComboBox {
-                background: rgba(255, 255, 255, 0.15);
-                border: 1px solid rgba(255, 255, 255, 0.3);
-                border-radius: 8px;
-                padding: 8px 16px;
-                font-size: 13px;
-                font-weight: 600;
-                color: white;
-            }
-            QComboBox:hover {
-                background: rgba(255, 255, 255, 0.25);
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 20px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid white;
-                margin-right: 5px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #1e1e1e;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-                selection-background-color: #7c3aed;
-                color: white;
-                padding: 4px;
-            }
-        """)
+        # Style will be applied in _apply_header_styles()
         header_layout.addWidget(self.currency_combo)
         
         # Language combo box in header
@@ -198,61 +168,28 @@ class MainWindow(QMainWindow):
         self.lang_combo.setMinimumHeight(36)
         self._populate_language_combo()
         self.lang_combo.currentTextChanged.connect(self.on_language_changed)
-        self.lang_combo.setStyleSheet("""
-            QComboBox {
-                background: rgba(255, 255, 255, 0.15);
-                border: 1px solid rgba(255, 255, 255, 0.3);
-                border-radius: 8px;
-                padding: 8px 16px;
-                font-size: 13px;
-                font-weight: 600;
-                color: white;
-            }
-            QComboBox:hover {
-                background: rgba(255, 255, 255, 0.25);
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 20px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid white;
-                margin-right: 5px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #1e1e1e;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-                selection-background-color: #7c3aed;
-                color: white;
-                padding: 4px;
-            }
-        """)
+        # Style will be applied in _apply_header_styles()
         header_layout.addWidget(self.lang_combo)
+        
+        # Font size combo box in header
+        self.font_size_combo = QComboBox()
+        self.font_size_combo.setMinimumWidth(100)
+        self.font_size_combo.setMinimumHeight(36)
+        self._populate_font_size_combo()
+        self.font_size_combo.currentTextChanged.connect(self.on_font_size_changed)
+        # Style will be applied in _apply_header_styles()
+        header_layout.addWidget(self.font_size_combo)
         
         # Settings button in header
         self.settings_button = QPushButton(t("settings"))
         self.settings_button.setMinimumWidth(130)
         self.settings_button.setMinimumHeight(36)
         self.settings_button.clicked.connect(self.open_settings)
-        self.settings_button.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.15);
-                border: 1px solid rgba(255, 255, 255, 0.3);
-                border-radius: 8px;
-                padding: 8px 16px;
-                font-size: 13px;
-                font-weight: 600;
-                color: white;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.25);
-            }
-        """)
+        # Style will be applied in _apply_header_styles()
         header_layout.addWidget(self.settings_button)
+        
+        # Apply header styles (after all widgets are created)
+        self._apply_header_styles()
         
         main_layout.addWidget(header_widget)
         
@@ -270,6 +207,10 @@ class MainWindow(QMainWindow):
         self.tab_widgets[0].setVisible(True)
         self.current_tab = 0
         
+        # Register calculator tab for font size updates
+        if hasattr(self.calculator_tab, 'update_font_size'):
+            register_font_size_callback(self.calculator_tab.update_font_size)
+        
         main_layout.addWidget(self.content_stack)
         
         # Register for language changes
@@ -277,6 +218,9 @@ class MainWindow(QMainWindow):
         
         # Register for currency changes
         register_currency_callback(self.update_currency)
+        
+        # Register for font size changes
+        register_font_size_callback(self.update_font_size)
 
     def _get_tab_button_style(self, is_active: bool) -> str:
         """Get style for tab button based on active state."""
@@ -371,6 +315,9 @@ class MainWindow(QMainWindow):
         # Update currency combo (to update translations)
         self._populate_currency_combo()
         
+        # Update font size combo (to update translations)
+        self._populate_font_size_combo()
+        
         # Update child tabs
         if hasattr(self.calculator_tab, 'update_translations'):
             self.calculator_tab.update_translations()
@@ -379,103 +326,176 @@ class MainWindow(QMainWindow):
         if hasattr(self.history_tab, 'update_translations'):
             self.history_tab.update_translations()
 
+    def _apply_header_styles(self):
+        """Apply styles to header combo boxes and buttons with current font size."""
+        from utils.translations import get_font_size_px
+        base_size = get_font_size_px("base")
+        
+        header_combo_style = f"""
+            QComboBox {{
+                background: rgba(255, 255, 255, 0.15);
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                border-radius: 8px;
+                padding: 8px 16px;
+                font-size: {base_size}px;
+                font-weight: 600;
+                color: white;
+            }}
+            QComboBox:hover {{
+                background: rgba(255, 255, 255, 0.25);
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 20px;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid white;
+                margin-right: 5px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: #1e1e1e;
+                border: 1px solid #3a3a3a;
+                border-radius: 8px;
+                selection-background-color: #7c3aed;
+                color: white;
+                padding: 4px;
+                font-size: {base_size}px;
+            }}
+        """
+        
+        header_button_style = f"""
+            QPushButton {{
+                background: rgba(255, 255, 255, 0.15);
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                border-radius: 8px;
+                padding: 8px 16px;
+                font-size: {base_size}px;
+                font-weight: 600;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background: rgba(255, 255, 255, 0.25);
+            }}
+        """
+        
+        self.currency_combo.setStyleSheet(header_combo_style)
+        self.lang_combo.setStyleSheet(header_combo_style)
+        self.font_size_combo.setStyleSheet(header_combo_style)
+        self.settings_button.setStyleSheet(header_button_style)
+    
     def _apply_theme(self):
         """Apply modern dark theme with purple/blue accents."""
-        self.setStyleSheet("""
-            QMainWindow {
+        # Get current font sizes
+        base_size = get_font_size_px("base")
+        label_size = get_font_size_px("label")
+        button_size = get_font_size_px("button")
+        title_size = get_font_size_px("title")
+        
+        self.setStyleSheet(f"""
+            QMainWindow {{
                 background-color: #121212;
-            }
-            QWidget {
+            }}
+            QWidget {{
                 background-color: #121212;
                 color: #e0e0e0;
                 font-family: 'Segoe UI', Arial, sans-serif;
-            }
-            QGroupBox {
+            }}
+            QGroupBox {{
                 border: 1px solid #333;
                 border-radius: 12px;
                 margin-top: 16px;
                 padding-top: 16px;
                 font-weight: 600;
-                font-size: 11px;
+                font-size: {title_size}px;
                 color: #b0b0b0;
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
-            }
-            QGroupBox::title {
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 16px;
                 padding: 0 8px;
-            }
-            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+            }}
+            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
                 background-color: #1e1e1e;
                 border: 1px solid #3a3a3a;
                 border-radius: 8px;
                 padding: 10px 14px;
-                font-size: 13px;
+                font-size: {base_size}px;
                 color: #ffffff;
                 selection-background-color: #7c3aed;
-            }
-            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+            }}
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{
                 border: 2px solid #7c3aed;
                 background-color: #252525;
-            }
-            QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {
+            }}
+            QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{
                 border: 1px solid #555;
                 background-color: #222;
-            }
-            QComboBox::drop-down {
+            }}
+            QComboBox:disabled {{
+                background-color: #1a1a1a;
+                border: 1px solid #2a2a2a;
+                color: #666;
+            }}
+            QComboBox::drop-down {{
                 border: none;
-            }
-            QComboBox QAbstractItemView {
+            }}
+            QComboBox QAbstractItemView {{
                 background-color: #1e1e1e;
                 border: 1px solid #3a3a3a;
                 selection-background-color: #7c3aed;
-            }
-            QPushButton {
+            }}
+            QPushButton {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #7c3aed, stop:1 #6d28d9);
                 border: none;
                 border-radius: 8px;
                 padding: 10px 20px;
-                font-size: 13px;
+                font-size: {button_size}px;
                 font-weight: 600;
                 color: white;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #8b5cf6, stop:1 #7c3aed);
-            }
-            QPushButton:pressed {
+            }}
+            QPushButton:pressed {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #6d28d9, stop:1 #5b21b6);
-            }
-            QLabel {
+            }}
+            QLabel {{
                 color: #e0e0e0;
-                font-size: 13px;
-            }
-            QTableWidget {
+                font-size: {label_size}px;
+            }}
+            QTableWidget {{
                 background-color: #1e1e1e;
                 border: 1px solid #333;
                 border-radius: 8px;
                 gridline-color: #333;
                 selection-background-color: #7c3aed;
-            }
-            QTableWidget::item {
+            }}
+            QTableWidget::item {{
                 padding: 8px;
                 color: #e0e0e0;
-            }
-            QTableWidget::item:selected {
+                font-size: {base_size}px;
+            }}
+            QTableWidget::item:selected {{
                 background-color: #7c3aed;
                 color: white;
-            }
-            QHeaderView::section {
+            }}
+            QHeaderView::section {{
                 background-color: #252525;
                 color: #e0e0e0;
                 padding: 10px;
                 border: none;
                 border-bottom: 2px solid #7c3aed;
                 font-weight: 600;
-            }
+                font-size: {base_size}px;
+            }}
         """)
 
     def on_tab_changed(self, index: int):
@@ -542,6 +562,66 @@ class MainWindow(QMainWindow):
         lang_code = self.lang_combo.currentData()
         if lang_code:
             set_language(lang_code)
+    
+    def _populate_font_size_combo(self):
+        """Populate font size combo box with available sizes."""
+        from utils.translations import get_font_size, t
+        self.font_size_combo.blockSignals(True)
+        self.font_size_combo.clear()
+        
+        current_size = get_font_size()
+        sizes = [
+            ("small", t("font_size_small")),
+            ("medium", t("font_size_medium")),
+            ("large", t("font_size_large"))
+        ]
+        
+        for size_code, size_text in sizes:
+            self.font_size_combo.addItem(size_text, size_code)
+            if size_code == current_size:
+                self.font_size_combo.setCurrentIndex(self.font_size_combo.count() - 1)
+        
+        self.font_size_combo.blockSignals(False)
+    
+    def on_font_size_changed(self, text):
+        """Handle font size selection change."""
+        from utils.translations import set_font_size
+        size_code = self.font_size_combo.currentData()
+        if size_code:
+            set_font_size(size_code)
+    
+    def update_font_size(self):
+        """Update UI after font size change."""
+        from utils.translations import get_font_size
+        current_size = get_font_size()
+        
+        # Update font size combo selection
+        for i in range(self.font_size_combo.count()):
+            if self.font_size_combo.itemData(i) == current_size:
+                self.font_size_combo.blockSignals(True)
+                self.font_size_combo.setCurrentIndex(i)
+                self.font_size_combo.blockSignals(False)
+                break
+        
+        # Update font size combo text
+        self._populate_font_size_combo()
+        
+        # Reapply theme with new font sizes
+        self._apply_theme()
+        self._apply_header_styles()
+        
+        # Update child tabs if they have update_font_size method
+        if hasattr(self.calculator_tab, 'update_font_size'):
+            self.calculator_tab.update_font_size()
+        if hasattr(self.inventory_tab, 'update_font_size'):
+            self.inventory_tab.update_font_size()
+        if hasattr(self.history_tab, 'update_font_size'):
+            self.history_tab.update_font_size()
+
+    def refresh_calculator_filaments(self):
+        """Refresh filament list in calculator tab."""
+        if hasattr(self, 'calculator_tab') and self.calculator_tab:
+            self.calculator_tab.load_filaments()
 
     def open_settings(self):
         """Open settings dialog."""

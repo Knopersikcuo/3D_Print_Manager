@@ -7,7 +7,8 @@ from typing import Optional, Dict, Tuple
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QGroupBox, QComboBox, QFormLayout, QMessageBox, QFileDialog,
-    QSpinBox, QSizePolicy, QListWidget, QListWidgetItem, QDialog, QDialogButtonBox
+    QSpinBox, QSizePolicy, QListWidget, QListWidgetItem, QDialog, QDialogButtonBox,
+    QFrame, QScrollArea, QCheckBox
 )
 from PyQt5.QtCore import Qt, QMimeData
 from PyQt5.QtGui import QFont, QDragEnterEvent, QDropEvent, QColor, QBrush, QPixmap, QIcon, QPainter
@@ -50,7 +51,7 @@ class DragDropListWidget(QListWidget):
             for url in urls:
                 file_path = url.toLocalFile()
                 if file_path.lower().endswith(('.gcode', '.gco', '.nc', '.bgcode')):
-                    if not any(self.item(i).data(Qt.UserRole) == file_path
+                    if not any(self.item(i).data(Qt.UserRole) == file_path 
                              for i in range(self.count())):
                         item = QListWidgetItem(os.path.basename(file_path))
                         item.setData(Qt.UserRole, file_path)
@@ -65,10 +66,10 @@ def create_color_icon(color_str: str, size: int = 20) -> QIcon:
     color = QColor(color_str)
     if not color.isValid():
         color = QColor("#000000")
-
+    
     pixmap = QPixmap(size, size)
     pixmap.fill(QColor(0, 0, 0, 0))
-
+    
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
     painter.setBrush(QBrush(color))
@@ -76,8 +77,165 @@ def create_color_icon(color_str: str, size: int = 20) -> QIcon:
     margin = 2
     painter.drawRect(margin, margin, size - 2 * margin, size - 2 * margin)
     painter.end()
-
+    
     return QIcon(pixmap)
+
+
+class MulticolorDisplayWidget(QWidget):
+    """Widget for displaying multicolor filament information with color squares."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Initialize the UI for multicolor display."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(6)
+        
+        # Title label
+        self.title_label = QLabel()
+        self.title_label.setStyleSheet("color: #7c3aed; font-size: 12px; font-weight: 600;")
+        layout.addWidget(self.title_label)
+        
+        # Scroll area for filament items
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+            QScrollBar:vertical {
+                background: #1e1e1e;
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #555;
+                border-radius: 4px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #7c3aed;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+        
+        # Container for filament items
+        self.filaments_container = QWidget()
+        self.filaments_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.filaments_layout = QVBoxLayout(self.filaments_container)
+        self.filaments_layout.setContentsMargins(0, 0, 0, 0)
+        self.filaments_layout.setSpacing(7)  # Spacing between rows (increased to 7px to prevent text cutoff)
+        
+        scroll_area.setWidget(self.filaments_container)
+        layout.addWidget(scroll_area)
+        
+        # Set maximum height for scroll area (show ~5-6 items, then scroll)
+        scroll_area.setMaximumHeight(200)  # Approximately 5-6 rows with spacing
+    
+    def update_multicolor_info(self, multicolor_filaments: list):
+        """Update the display with multicolor filament information."""
+        from utils.translations import t
+        
+        # Clear existing items
+        while self.filaments_layout.count():
+            child = self.filaments_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        
+        if not multicolor_filaments:
+            self.title_label.setText("")
+            return
+        
+        # Set title
+        self.title_label.setText(f"<b>{t('multicolor_selected')}:</b>")
+        
+        # Group filaments by ID and sum weights
+        filament_groups = {}
+        for item in multicolor_filaments:
+            filament = item['filament']
+            filament_id = filament['id']
+            weight = item['weight']
+            
+            if filament_id in filament_groups:
+                # Sum weights for same filament
+                filament_groups[filament_id]['weight'] += weight
+            else:
+                # First occurrence of this filament
+                filament_groups[filament_id] = {
+                    'filament': filament,
+                    'weight': weight
+                }
+        
+        # Add each unique filament as a row with color square (with summed weights)
+        for filament_id, group_data in filament_groups.items():
+            filament = group_data['filament']
+            weight = group_data['weight']
+            
+            # Create row widget with fixed height
+            row_widget = QWidget()
+            row_widget.setFixedHeight(24)  # Fixed height for each row
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 4, 0)  # Right margin to prevent text cutoff
+            row_layout.setSpacing(8)
+            
+            # Color square
+            color_str = filament.get('color', '#000000')
+            if not color_str.startswith('#'):
+                color_str = '#' + color_str
+            color = QColor(color_str)
+            if not color.isValid():
+                color = QColor("#000000")
+            
+            color_square = QLabel()
+            color_square.setFixedSize(16, 16)
+            color_square.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {color_str};
+                    border: 1px solid #444;
+                    border-radius: 3px;
+                }}
+            """)
+            row_layout.addWidget(color_square)
+            
+            # Filament info (brand and type)
+            filament_type = filament.get('type', '')
+            if filament_type:
+                info_text = f"{filament['brand']} - {filament_type}"
+            else:
+                info_text = filament['brand']
+            
+            info_label = QLabel(info_text)
+            info_label.setStyleSheet("color: #e0e0e0; font-size: 12px; background: transparent;")
+            info_label.setWordWrap(False)  # Don't wrap, allow full text display
+            info_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            row_layout.addWidget(info_label, 1)  # Give it stretch factor to take available space
+            
+            # Weight
+            weight_label = QLabel(f"{weight:.2f}g")
+            weight_label.setStyleSheet("""
+                color: #7c3aed; 
+                font-size: 12px; 
+                font-weight: 500; 
+                background: transparent;
+                padding-right: 4px;
+            """)
+            weight_label.setMinimumWidth(75)  # Ensure enough space for weight with "g" including padding
+            weight_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)  # Right align weight
+            row_layout.addWidget(weight_label, 0)  # No stretch, fixed width
+            
+            self.filaments_layout.addWidget(row_widget)
+    
+    def clear(self):
+        """Clear the multicolor display."""
+        self.update_multicolor_info([])
 
 
 class CalculatorTab(QWidget):
@@ -87,7 +245,8 @@ class CalculatorTab(QWidget):
         super().__init__(parent)
         self.config = config
         self.current_filament_id = None
-        self.current_multicolor_filaments = []  # List of {filament_id, weight} for multicolor
+        self.current_multicolor_filaments = []  # List of {filament_id, weight, filename} for multicolor
+        self.file_filament_mapping = {}  # Dict mapping filename -> list of filament selections for that file
         self.current_price_result = None
         self.init_ui()
 
@@ -117,8 +276,12 @@ class CalculatorTab(QWidget):
         content_layout.setContentsMargins(10, 8, 0, 8)
         content_layout.setSpacing(8)
         
-        label_widget.setStyleSheet("color: #a0a0a0; font-size: 12px; background: transparent;")
-        value_widget.setStyleSheet(f"color: {accent_color}; font-size: 13px; font-weight: 600; background: transparent;")
+        # Use dynamic font sizes
+        from utils.translations import get_font_size_px
+        label_size = get_font_size_px("label")
+        base_size = get_font_size_px("base")
+        label_widget.setStyleSheet(f"color: #a0a0a0; font-size: {label_size}px; background: transparent;")
+        value_widget.setStyleSheet(f"color: {accent_color}; font-size: {base_size}px; font-weight: 600; background: transparent;")
         
         content_layout.addWidget(label_widget)
         content_layout.addStretch()
@@ -145,7 +308,7 @@ class CalculatorTab(QWidget):
         # Input form group
         self.input_group = QGroupBox(t("filament_selection"))
         self.input_group.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-        self.input_group.setFixedWidth(320)
+        self.input_group.setFixedWidth(400)  # Increased width to accommodate multicolor list
         self.input_group.setMinimumHeight(320)
         input_layout = QFormLayout()
         input_layout.setSpacing(14)
@@ -166,7 +329,22 @@ class CalculatorTab(QWidget):
         self.available_weight_label.setStyleSheet("color: #7c3aed; font-size: 12px; font-weight: 500;")
         self.available_weight_label.setWordWrap(True)
         self.available_weight_label.setMinimumHeight(40)
-        input_layout.addRow("", self.available_weight_label)
+        
+        # Multicolor display widget
+        self.multicolor_display = MulticolorDisplayWidget()
+        self.multicolor_display.setVisible(False)
+        
+        # Container widget to switch between normal and multicolor display
+        self.weight_display_container = QWidget()
+        weight_container_layout = QVBoxLayout(self.weight_display_container)
+        weight_container_layout.setContentsMargins(0, 0, 0, 0)
+        weight_container_layout.setSpacing(0)
+        weight_container_layout.addWidget(self.available_weight_label)
+        weight_container_layout.addWidget(self.multicolor_display)
+        # Allow container to expand horizontally
+        self.weight_display_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        
+        input_layout.addRow("", self.weight_display_container)
 
         # Filament weight input (can be auto-filled from G-code)
         self.filament_weight_input = QLineEdit()
@@ -220,6 +398,32 @@ class CalculatorTab(QWidget):
         self.calculate_button.clicked.connect(self.calculate_price)
         left_column.addWidget(self.calculate_button)
 
+        # Save mode checkbox
+        self.save_separately_checkbox = QCheckBox(t("save_prints_separately"))
+        self.save_separately_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: #e0e0e0;
+                font-size: 12px;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border: 2px solid #555;
+                border-radius: 4px;
+                background-color: #1e1e1e;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #7c3aed;
+                border-color: #7c3aed;
+            }
+            QCheckBox::indicator:hover {
+                border-color: #7c3aed;
+            }
+        """)
+        self.save_separately_checkbox.setToolTip(t("save_prints_separately_tooltip"))
+        left_column.addWidget(self.save_separately_checkbox)
+        
         self.execute_button = QPushButton(t("execute_print"))
         self.execute_button.setMinimumHeight(48)
         self.execute_button.setStyleSheet("""
@@ -343,7 +547,7 @@ class CalculatorTab(QWidget):
         
         # === BASE COSTS SECTION ===
         self.base_costs_title = QLabel(t("base_costs_title"))
-        self.base_costs_title.setStyleSheet("color: #7c3aed; font-size: 11px; font-weight: 700; letter-spacing: 1px; padding: 4px 0;")
+        # Style will be set dynamically in update_font_size()
         results_layout.addWidget(self.base_costs_title)
 
         # Material cost row
@@ -375,7 +579,7 @@ class CalculatorTab(QWidget):
 
         # === ADDITIONS SECTION ===
         self.additions_title = QLabel(t("additions_title"))
-        self.additions_title.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 700; letter-spacing: 1px; padding: 4px 0;")
+        # Style will be set dynamically in update_font_size()
         results_layout.addWidget(self.additions_title)
 
         # Risk row
@@ -402,16 +606,19 @@ class CalculatorTab(QWidget):
 
         # === FINAL SECTION ===
         self.final_section_title = QLabel(t("final_title"))
-        self.final_section_title.setStyleSheet("color: #f59e0b; font-size: 11px; font-weight: 700; letter-spacing: 1px; padding: 4px 0;")
+        # Style will be set dynamically in update_font_size()
         results_layout.addWidget(self.final_section_title)
 
         # VAT row
         self.result_labels["vat"] = QLabel(t("vat"))
-        self.vat_label.setStyleSheet("color: #fbbf24; font-size: 14px; font-weight: 700;")
+        # Style will be set dynamically in update_font_size()
         row10 = self._create_cost_row(self.result_labels["vat"], self.vat_label, "#fbbf24")
         results_layout.addWidget(row10)
 
         results_layout.addSpacing(12)
+        
+        # Add stretch to push final price to bottom
+        results_layout.addStretch()
 
         # Final price container
         final_price_container = QWidget()
@@ -429,18 +636,16 @@ class CalculatorTab(QWidget):
         final_price_layout.setSpacing(6)
 
         self.final_price_title = QLabel(t("final_price"))
-        self.final_price_title.setStyleSheet("color: rgba(255,255,255,0.8); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; background: transparent;")
+        # Style will be set dynamically in update_font_size()
         self.final_price_title.setAlignment(Qt.AlignCenter)
         final_price_layout.addWidget(self.final_price_title)
 
-        self.final_price_label.setStyleSheet(
-            "color: #ffffff; font-size: 28px; font-weight: 800; background: transparent;"
-        )
+        # Style will be set dynamically in update_font_size()
         self.final_price_label.setAlignment(Qt.AlignCenter)
         final_price_layout.addWidget(self.final_price_label)
 
         results_layout.addWidget(final_price_container)
-        results_layout.addStretch()
+        # Stretch is already added before final_price_container to push it to bottom
 
         right_column.addWidget(self.results_group)
         columns_layout.addLayout(right_column, 0)
@@ -449,9 +654,32 @@ class CalculatorTab(QWidget):
 
         # Load filaments into combo
         self.load_filaments()
+        
+        # Connect G-code list changes to update checkbox
+        from PyQt5.QtCore import QTimer
+        # Update checkbox when list changes (using timer to avoid multiple calls)
+        self.gcode_list.model().rowsInserted.connect(lambda: QTimer.singleShot(100, self._update_save_separately_checkbox))
+        self.gcode_list.model().rowsRemoved.connect(lambda: QTimer.singleShot(100, self._update_save_separately_checkbox))
+        # Initial state
+        self._update_save_separately_checkbox()
+        
+        # Apply initial font sizes
+        self.update_font_size()
+    
+    def _update_save_separately_checkbox(self):
+        """Update save separately checkbox state based on G-code files count."""
+        file_count = self.gcode_list.count()
+        if file_count > 1:
+            self.save_separately_checkbox.setEnabled(True)
+        else:
+            self.save_separately_checkbox.setEnabled(False)
+            self.save_separately_checkbox.setChecked(False)  # Uncheck if only one file
 
     def load_filaments(self):
         """Load filaments from inventory into combo box."""
+        # Block signals to prevent clearing multicolor selection during reload
+        self.filament_combo.blockSignals(True)
+        
         filaments = load_filaments()
         self.filament_combo.clear()
         self.filament_combo.addItem(t("select_filament"), None)
@@ -465,26 +693,55 @@ class CalculatorTab(QWidget):
 
             color_icon = create_color_icon(filament['color'])
             self.filament_combo.addItem(color_icon, display_text, filament['id'])
+        
+        # Restore combo box state based on current selection
+        if self.current_multicolor_filaments:
+            # Multicolor is active - set to "Select filament" and disable
+            self.filament_combo.setCurrentIndex(0)
+            self.filament_combo.setEnabled(False)
+        elif self.current_filament_id:
+            # Single filament selected - find and select it
+            for i in range(self.filament_combo.count()):
+                if self.filament_combo.itemData(i) == self.current_filament_id:
+                    self.filament_combo.setCurrentIndex(i)
+                    break
+        
+        # Unblock signals
+        self.filament_combo.blockSignals(False)
 
     def on_filament_changed(self, index: int):
         """Handle filament selection change."""
+        # Don't clear multicolor if user is just changing language - only clear if explicitly selecting a single filament
         if index <= 0:
-            self.current_filament_id = None
-            self.current_multicolor_filaments = []  # Clear multicolor when selecting single
-            self.filament_combo.setEnabled(True)  # Re-enable combo box
-            self.available_weight_label.setText(t("available_weight") + " - g")
+            # Only clear multicolor if it's a user action (not during load_filaments)
+            if not self.filament_combo.signalsBlocked():
+                self.current_filament_id = None
+                self.current_multicolor_filaments = []  # Clear multicolor when selecting single
+                self.file_filament_mapping = {}
+                self.filament_combo.setEnabled(True)  # Re-enable combo box
+                self.available_weight_label.setText(t("available_weight") + " - g")
+                self.available_weight_label.setVisible(True)
+                self.multicolor_display.setVisible(False)
             return
 
         filament_id = self.filament_combo.itemData(index)
         if filament_id:
             filament = get_filament_by_id(filament_id)
             if filament:
-                self.current_filament_id = filament_id
-                self.current_multicolor_filaments = []  # Clear multicolor when selecting single
-                self.filament_combo.setEnabled(True)  # Re-enable combo box
-                self.available_weight_label.setText(
-                    f"{t('available_weight')} {filament['current_weight']} g"
-                )
+                # Only clear multicolor if it's a user action (not during load_filaments)
+                if not self.filament_combo.signalsBlocked():
+                    self.current_filament_id = filament_id
+                    self.current_multicolor_filaments = []  # Clear multicolor when selecting single
+                    self.file_filament_mapping = {}
+                    self.filament_combo.setEnabled(True)  # Re-enable combo box
+                    self.available_weight_label.setText(
+                        f"{t('available_weight')} {filament['current_weight']} g"
+                    )
+                    self.available_weight_label.setVisible(True)
+                    self.multicolor_display.setVisible(False)
+                else:
+                    # During load_filaments - just update the ID
+                    self.current_filament_id = filament_id
 
     def select_gcode_files(self):
         """Open file dialog to select G-code files."""
@@ -500,10 +757,48 @@ class CalculatorTab(QWidget):
                     item = QListWidgetItem(os.path.basename(file_path))
                     item.setData(Qt.UserRole, file_path)
                     self.gcode_list.addItem(item)
+            
+            # Update checkbox state - enable if multiple files
+            self._update_save_separately_checkbox()
 
     def clear_gcode_list(self):
-        """Clear the G-code files list."""
+        """Clear all calculator data: G-code files, filament selection, and costs."""
+        # Clear G-code files
         self.gcode_list.clear()
+        # Update checkbox state
+        self._update_save_separately_checkbox()
+        
+        # Clear filament selection
+        self.filament_combo.setCurrentIndex(0)
+        self.current_filament_id = None
+        self.current_multicolor_filaments = []
+        self.file_filament_mapping = {}
+        self.filament_combo.setEnabled(True)
+        self.available_weight_label.setVisible(True)
+        self.available_weight_label.setText(t("available_weight") + " - g")
+        self.multicolor_display.setVisible(False)
+        
+        # Clear input fields
+        self.filament_weight_input.clear()
+        self.print_time_input.clear()
+        self.copies_input.setValue(1)
+        self.energy_consumption_label.setText("-")
+        if self.advanced_group.isChecked():
+            self.postprocess_time_input.clear()
+        
+        # Clear results
+        self.current_price_result = None
+        self.material_cost_label.setText("-")
+        self.time_cost_label.setText("-")
+        self.energy_cost_label.setText("-")
+        self.postprocess_cost_label.setText("-")
+        self.setup_fee_label.setText("-")
+        self.risk_label.setText("-")
+        self.margin_label.setText("-")
+        self.packaging_label.setText("-")
+        self.shipping_label.setText("-")
+        self.vat_label.setText("-")
+        self.final_price_label.setText("-")
 
     def load_gcode_files(self):
         """Load and parse all G-code files from the list."""
@@ -525,17 +820,33 @@ class CalculatorTab(QWidget):
         total_filament = 0.0
         materials_found = []
         successful_imports = 0
-        multicolor_weights = None  # Will store list of weights if multicolor detected
+        file_data_list = []  # List of {filename, weights} for each file
+        has_multicolor = False  # Track if any file has multicolor
 
         for file_path in file_paths:
             result = GCodeParser.parse_gcode(file_path)
             file_time = result.get("time_hours", 0.0)
             file_filament = result.get("filament_weight_g", 0.0)
             file_material = result.get("material_type", "")
+            filename = os.path.basename(file_path)
             
+            file_weights = []
             # Check for multicolor (multiple weights)
             if "filament_weights_g" in result:
-                multicolor_weights = result["filament_weights_g"]
+                file_weights = result["filament_weights_g"]
+                if len(file_weights) > 1:
+                    has_multicolor = True
+            else:
+                # Single color file - add single weight
+                if file_filament > 0:
+                    file_weights = [file_filament]
+            
+            # Store file data with weights
+            if file_weights:
+                file_data_list.append({
+                    'filename': filename,
+                    'weights': file_weights
+                })
 
             if file_time > 0 or file_filament > 0:
                 successful_imports += 1
@@ -547,12 +858,16 @@ class CalculatorTab(QWidget):
         if total_time > 0:
             self.print_time_input.setText(f"{total_time:.2f}")
 
-        # Handle multicolor
-        if multicolor_weights and len(multicolor_weights) > 1:
-            # Show dialog to select filaments for each weight
-            dialog = MulticolorFilamentDialog(multicolor_weights, self)
+        # Handle multiple files or multicolor - show dialog for filament selection
+        # Show dialog if: multiple files (even single color) OR any file has multicolor
+        if len(file_data_list) > 1 or (has_multicolor and len(file_data_list) > 0):
+            # Show dialog to select filaments for each file with their weights
+            dialog = MulticolorFilamentDialog(file_data_list, self)
             if dialog.exec_() == QDialog.Accepted:
-                self.current_multicolor_filaments = dialog.get_selected_filaments()
+                # Get selected filaments with file mapping
+                selected_data = dialog.get_selected_filaments_with_files()
+                self.current_multicolor_filaments = selected_data['all_filaments']
+                self.file_filament_mapping = selected_data['file_mapping']  # Store file->filaments mapping
                 self.current_filament_id = None  # Clear single filament selection
                 # Set total weight
                 total_multicolor_weight = sum(w['weight'] for w in self.current_multicolor_filaments)
@@ -561,15 +876,10 @@ class CalculatorTab(QWidget):
                 # Update combo box to show multicolor info
                 self.filament_combo.setCurrentIndex(0)  # Reset to "Select filament"
                 self.filament_combo.setEnabled(False)  # Disable combo box for multicolor
-                # Update available weight label to show multicolor info
-                filaments_info = "<br>".join([
-                    f"• {item['filament']['brand']} - {item['weight']:.2f}g"
-                    for item in self.current_multicolor_filaments
-                ])
-                self.available_weight_label.setText(
-                    f"<b>{t('multicolor_selected')}:</b><br>{filaments_info}"
-                )
-                self.available_weight_label.setMinimumHeight(60 + len(self.current_multicolor_filaments) * 20)
+                # Update multicolor display widget
+                self.available_weight_label.setVisible(False)
+                self.multicolor_display.setVisible(True)
+                self.multicolor_display.update_multicolor_info(self.current_multicolor_filaments)
                 
                 if successful_imports > 0:
                     QMessageBox.information(
@@ -577,18 +887,24 @@ class CalculatorTab(QWidget):
                         t("import_success_multicolor").format(
                             success=successful_imports, total=len(file_paths),
                             time=f"{total_time:.2f}", weight=f"{total_multicolor_weight:.1f}",
-                            filaments=len(multicolor_weights)
+                            filaments=sum(len(fd['weights']) for fd in file_data_list)
                         )
                     )
             else:
                 # User cancelled, clear multicolor selection
                 self.current_multicolor_filaments = []
+                self.file_filament_mapping = {}
                 self.filament_combo.setEnabled(True)  # Re-enable combo box
+                self.available_weight_label.setVisible(True)
+                self.multicolor_display.setVisible(False)
                 return
         else:
-            # Single filament (normal case)
+            # Single file single color - normal case (no dialog needed)
             self.current_multicolor_filaments = []
+            self.file_filament_mapping = {}
             self.filament_combo.setEnabled(True)  # Ensure combo box is enabled
+            self.available_weight_label.setVisible(True)
+            self.multicolor_display.setVisible(False)
             if total_filament > 0:
                 self.filament_weight_input.setText(f"{total_filament:.1f}")
 
@@ -847,98 +1163,273 @@ class CalculatorTab(QWidget):
             filament_weight = float(self.filament_weight_input.text().replace(',', '.'))
             filament = get_filament_by_id(self.current_filament_id)
 
+            # Get G-code files list
+            gcode_files = []
+            for i in range(self.gcode_list.count()):
+                file_path = self.gcode_list.item(i).data(Qt.UserRole)
+                if file_path:
+                    gcode_files.append(os.path.basename(file_path))
+            
+            # Determine if we should save separately based on checkbox
+            save_separately = self.save_separately_checkbox.isChecked() and len(gcode_files) > 1
+            
             # Get suggested print name from G-code files
             suggested_name = t("print_name_default")
-            gcode_file = None
-            if self.gcode_list.count() > 0:
-                first_file = self.gcode_list.item(0).data(Qt.UserRole)
-                if first_file:
-                    gcode_file = os.path.basename(first_file)
-                    suggested_name = os.path.splitext(gcode_file)[0]
+            if gcode_files:
+                suggested_name = os.path.splitext(gcode_files[0])[0]
 
-            # Ask user for print name with wider dialog
-            dialog = QDialog(self)
-            dialog.setWindowTitle(t("enter_print_name"))
-            dialog.setMinimumWidth(500)
-            dialog_layout = QVBoxLayout(dialog)
-            dialog_layout.setSpacing(16)
-            dialog_layout.setContentsMargins(20, 20, 20, 20)
-            
-            prompt_label = QLabel(t("enter_print_name_prompt"))
-            dialog_layout.addWidget(prompt_label)
-            
-            name_input = QLineEdit()
-            name_input.setText(suggested_name)
-            name_input.selectAll()
-            dialog_layout.addWidget(name_input)
-            
-            button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            button_box.accepted.connect(dialog.accept)
-            button_box.rejected.connect(dialog.reject)
-            dialog_layout.addWidget(button_box)
-            
-            if dialog.exec_() != QDialog.Accepted:
-                return  # User cancelled
-            
-            print_name = name_input.text().strip()
-            if not print_name:
-                print_name = suggested_name
+            # Ask user for print name (only if saving together or single file)
+            if not save_separately:
+                dialog = QDialog(self)
+                dialog.setWindowTitle(t("enter_print_name"))
+                dialog.setMinimumWidth(500)
+                dialog_layout = QVBoxLayout(dialog)
+                dialog_layout.setSpacing(16)
+                dialog_layout.setContentsMargins(20, 20, 20, 20)
+                
+                prompt_label = QLabel(t("enter_print_name_prompt"))
+                dialog_layout.addWidget(prompt_label)
+                
+                name_input = QLineEdit()
+                name_input.setText(suggested_name)
+                name_input.selectAll()
+                dialog_layout.addWidget(name_input)
+                
+                button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+                button_box.accepted.connect(dialog.accept)
+                button_box.rejected.connect(dialog.reject)
+                dialog_layout.addWidget(button_box)
+                
+                if dialog.exec_() != QDialog.Accepted:
+                    return  # User cancelled
+                
+                print_name = name_input.text().strip()
+                if not print_name:
+                    print_name = suggested_name
+            else:
+                # Will use file names for separate saves
+                print_name = None
 
-            # Handle multicolor or single filament
-            if self.current_multicolor_filaments:
-                # Multicolor: save multiple print records
+            # Handle multicolor, multiple single color files, or single filament
+            # Check if we have file mapping (multiple files with selected filaments)
+            has_file_mapping = len(self.file_filament_mapping) > 0
+            
+            if self.current_multicolor_filaments or has_file_mapping:
+                # Multicolor or multiple files: save multiple print records
                 total_price = self.current_price_result['final_price']
                 # Distribute price proportionally by weight
-                total_weight = sum(w['weight'] for w in self.current_multicolor_filaments)
+                if self.current_multicolor_filaments:
+                    total_weight = sum(w['weight'] for w in self.current_multicolor_filaments)
+                else:
+                    # Multiple single color files - calculate total from file mapping
+                    total_weight = 0
+                    for file_filaments in self.file_filament_mapping.values():
+                        total_weight += sum(f['weight'] for f in file_filaments)
                 
-                for multicolor_item in self.current_multicolor_filaments:
-                    filament = multicolor_item['filament']
-                    weight = multicolor_item['weight']
-                    # Calculate proportional price
-                    proportional_price = (weight / total_weight) * total_price if total_weight > 0 else 0
+                # Group filaments by ID and sum weights (same as in display)
+                filament_groups = {}
+                if self.current_multicolor_filaments:
+                    # Use multicolor filaments
+                    for item in self.current_multicolor_filaments:
+                        filament_id = item['filament']['id']
+                        weight = item['weight']
+                        if filament_id in filament_groups:
+                            filament_groups[filament_id]['weight'] += weight
+                        else:
+                            filament_groups[filament_id] = {
+                                'filament': item['filament'],
+                                'weight': weight
+                            }
+                else:
+                    # Use file mapping for multiple single color files
+                    for file_filaments in self.file_filament_mapping.values():
+                        for item in file_filaments:
+                            filament_id = item['filament']['id']
+                            weight = item['weight']
+                            if filament_id in filament_groups:
+                                filament_groups[filament_id]['weight'] += weight
+                            else:
+                                filament_groups[filament_id] = {
+                                    'filament': item['filament'],
+                                    'weight': weight
+                                }
+                
+                if save_separately:
+                    # Save separately for each G-code file
+                    # Use file_filament_mapping to get filaments for each specific file
+                    for gcode_file in gcode_files:
+                        file_print_name = os.path.splitext(gcode_file)[0]
+                        
+                        # Get filaments assigned to this specific file
+                        if gcode_file in self.file_filament_mapping:
+                            file_filaments = self.file_filament_mapping[gcode_file]
+                            # Calculate price for this file based on its filaments
+                            file_total_weight = sum(f['weight'] for f in file_filaments)
+                            file_price = (file_total_weight / total_weight) * total_price if total_weight > 0 else 0
+                            
+                            # Group filaments by ID for this file
+                            file_filament_groups = {}
+                            for item in file_filaments:
+                                filament_id = item['filament']['id']
+                                weight = item['weight']
+                                if filament_id in file_filament_groups:
+                                    file_filament_groups[filament_id]['weight'] += weight
+                                else:
+                                    file_filament_groups[filament_id] = {
+                                        'filament': item['filament'],
+                                        'weight': weight
+                                    }
+                            
+                            # Save grouped filaments for this file
+                            for filament_id, group_data in file_filament_groups.items():
+                                filament = group_data['filament']
+                                grouped_weight = group_data['weight']
+                                # Calculate proportional price for this filament in this file
+                                proportional_price = (grouped_weight / file_total_weight) * file_price if file_total_weight > 0 else 0
+                                
+                                add_print(
+                                    filament_id=filament['id'],
+                                    print_name=file_print_name,
+                                    weight_used=int(grouped_weight),
+                                    price=proportional_price,
+                                    gcode_file=gcode_file
+                                )
+                        else:
+                            # Fallback: if mapping not available, distribute equally (shouldn't happen)
+                            price_per_file = total_price / len(gcode_files) if gcode_files else total_price
+                            for filament_id, group_data in filament_groups.items():
+                                filament = group_data['filament']
+                                grouped_weight = group_data['weight']
+                                weight_per_file = grouped_weight / len(gcode_files) if gcode_files else grouped_weight
+                                proportional_price = (weight_per_file / total_weight) * price_per_file if total_weight > 0 else 0
+                                
+                                add_print(
+                                    filament_id=filament['id'],
+                                    print_name=file_print_name,
+                                    weight_used=int(weight_per_file),
+                                    price=proportional_price,
+                                    gcode_file=gcode_file
+                                )
                     
-                    add_print(
-                        filament_id=filament['id'],
-                        print_name=print_name.strip(),
-                        weight_used=int(weight),
-                        price=proportional_price,
-                        gcode_file=gcode_file
+                    QMessageBox.information(
+                        self, t("success"),
+                        t("prints_recorded_separately").format(
+                            count=len(gcode_files),
+                            total_weight=f"{total_weight:.1f}",
+                            total_price=self.format_price(total_price)
+                        )
                     )
-                
-                # Show success message with all filaments
-                filaments_info = ", ".join([
-                    f"{item['filament']['brand']} ({item['weight']:.1f}g)"
-                    for item in self.current_multicolor_filaments
-                ])
-                QMessageBox.information(
-                    self, t("success"),
-                    t("print_recorded_multicolor_msg").format(
-                        name=print_name,
-                        filaments=filaments_info,
-                        weight=f"{total_weight:.1f}",
-                        price=self.format_price(total_price)
-                    )
-                )
+                else:
+                    # Save together - use grouped (summed) weights
+                    gcode_file_str = ", ".join(gcode_files) if gcode_files else None
+                    
+                    if self.current_multicolor_filaments:
+                        # Multicolor - use grouped filaments
+                        for filament_id, group_data in filament_groups.items():
+                            filament = group_data['filament']
+                            grouped_weight = group_data['weight']
+                            # Calculate proportional price
+                            proportional_price = (grouped_weight / total_weight) * total_price if total_weight > 0 else 0
+                            
+                            add_print(
+                                filament_id=filament['id'],
+                                print_name=print_name,
+                                weight_used=int(grouped_weight),
+                                price=proportional_price,
+                                gcode_file=gcode_file_str
+                            )
+                        
+                        # Show success message with grouped filaments
+                        filaments_info = ", ".join([
+                            f"{group_data['filament']['brand']} ({group_data['weight']:.1f}g)"
+                            for group_data in filament_groups.values()
+                        ])
+                        QMessageBox.information(
+                            self, t("success"),
+                            t("print_recorded_multicolor_msg").format(
+                                name=print_name,
+                                filaments=filaments_info,
+                                weight=f"{total_weight:.1f}",
+                                price=self.format_price(total_price)
+                            )
+                        )
+                    else:
+                        # Multiple single color files - use already grouped filaments
+                        for filament_id, group_data in filament_groups.items():
+                            filament = group_data['filament']
+                            grouped_weight = group_data['weight']
+                            # Calculate proportional price
+                            proportional_price = (grouped_weight / total_weight) * total_price if total_weight > 0 else 0
+                            
+                            add_print(
+                                filament_id=filament['id'],
+                                print_name=print_name,
+                                weight_used=int(grouped_weight),
+                                price=proportional_price,
+                                gcode_file=gcode_file_str
+                            )
+                        
+                        # Show success message
+                        filaments_info = ", ".join([
+                            f"{group_data['filament']['brand']} ({group_data['weight']:.1f}g)"
+                            for group_data in filament_groups.values()
+                        ])
+                        QMessageBox.information(
+                            self, t("success"),
+                            t("print_recorded_multicolor_msg").format(
+                                name=print_name,
+                                filaments=filaments_info,
+                                weight=f"{total_weight:.1f}",
+                                price=self.format_price(total_price)
+                            )
+                        )
             else:
-                # Single filament
+                # Single filament (single file) - no file mapping
                 filament = get_filament_by_id(self.current_filament_id)
-                add_print(
-                    filament_id=self.current_filament_id,
-                    print_name=print_name.strip(),
-                    weight_used=int(filament_weight),
-                    price=self.current_price_result['final_price'],
-                    gcode_file=gcode_file
-                )
-
-                QMessageBox.information(
-                    self, t("success"),
-                    t("print_recorded_msg").format(
-                        brand=filament['brand'],
-                        type=filament.get('type', ''),
-                        weight=f"{filament_weight:.1f}",
-                        price=self.format_price(self.current_price_result['final_price'])
+                
+                if save_separately and len(gcode_files) > 1:
+                    # Multiple files but no mapping - divide equally (shouldn't happen with new logic)
+                    price_per_file = self.current_price_result['final_price'] / len(gcode_files) if gcode_files else self.current_price_result['final_price']
+                    weight_per_file = filament_weight / len(gcode_files) if gcode_files else filament_weight
+                    
+                    for gcode_file in gcode_files:
+                        file_print_name = os.path.splitext(gcode_file)[0]
+                        add_print(
+                            filament_id=self.current_filament_id,
+                            print_name=file_print_name,
+                            weight_used=int(weight_per_file),
+                            price=price_per_file,
+                            gcode_file=gcode_file
+                        )
+                    
+                    QMessageBox.information(
+                        self, t("success"),
+                        t("prints_recorded_separately").format(
+                            count=len(gcode_files),
+                            total_weight=f"{filament_weight:.1f}",
+                            total_price=self.format_price(self.current_price_result['final_price'])
+                        )
                     )
-                )
+                else:
+                    # Save together (single file or checkbox not checked)
+                    gcode_file_str = ", ".join(gcode_files) if gcode_files else None
+                    add_print(
+                        filament_id=self.current_filament_id,
+                        print_name=print_name,
+                        weight_used=int(filament_weight),
+                        price=self.current_price_result['final_price'],
+                        gcode_file=gcode_file_str
+                    )
+
+                    QMessageBox.information(
+                        self, t("success"),
+                        t("print_recorded_msg").format(
+                            brand=filament['brand'],
+                            type=filament.get('type', ''),
+                            weight=f"{filament_weight:.1f}",
+                            price=self.format_price(self.current_price_result['final_price'])
+                        )
+                    )
 
             # Refresh filament list and clear inputs
             self.load_filaments()
@@ -948,8 +1439,11 @@ class CalculatorTab(QWidget):
             self.current_price_result = None
             self.current_filament_id = None
             self.current_multicolor_filaments = []
+            self.file_filament_mapping = {}
             self.filament_combo.setEnabled(True)  # Re-enable combo box
             self.available_weight_label.setText(t("available_weight") + " - g")
+            self.available_weight_label.setVisible(True)
+            self.multicolor_display.setVisible(False)
 
             # Clear results
             for label in [self.material_cost_label, self.time_cost_label, self.energy_cost_label,
@@ -961,6 +1455,54 @@ class CalculatorTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, t("error"), f"{t('error')}: {str(e)}")
 
+    def update_font_size(self):
+        """Update font sizes for all UI elements."""
+        from utils.translations import get_font_size_px
+        label_size = get_font_size_px("label")
+        base_size = get_font_size_px("base")
+        title_size = get_font_size_px("title")
+        
+        # Update cost row labels
+        for label in self.result_labels.values():
+            label.setStyleSheet(f"color: #a0a0a0; font-size: {label_size}px; background: transparent;")
+        
+        # Update value labels - preserve their colors
+        value_labels = [
+            (self.material_cost_label, "#3b82f6"),
+            (self.time_cost_label, "#8b5cf6"),
+            (self.energy_cost_label, "#06b6d4"),
+            (self.postprocess_cost_label, "#14b8a6"),
+            (self.setup_fee_label, "#f59e0b"),
+            (self.risk_label, "#ef4444"),
+            (self.margin_label, "#22c55e"),
+            (self.packaging_label, "#a855f7"),
+            (self.shipping_label, "#ec4899"),
+        ]
+        
+        for label, color in value_labels:
+            label.setStyleSheet(f"color: {color}; font-size: {base_size}px; font-weight: 600; background: transparent;")
+        
+        # Update section titles
+        self.base_costs_title.setStyleSheet(f"color: #7c3aed; font-size: {title_size}px; font-weight: 700; letter-spacing: 1px; padding: 4px 0;")
+        self.additions_title.setStyleSheet(f"color: #10b981; font-size: {title_size}px; font-weight: 700; letter-spacing: 1px; padding: 4px 0;")
+        self.final_section_title.setStyleSheet(f"color: #f59e0b; font-size: {title_size}px; font-weight: 700; letter-spacing: 1px; padding: 4px 0;")
+        
+        # Update VAT label
+        self.vat_label.setStyleSheet(f"color: #fbbf24; font-size: {base_size + 1}px; font-weight: 700;")
+        
+        # Update final price section
+        self.final_price_title.setStyleSheet(f"color: rgba(255,255,255,0.8); font-size: {label_size}px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; background: transparent;")
+        
+        # Final price label - larger size
+        final_price_size = base_size + 15  # Make it larger than base
+        self.final_price_label.setStyleSheet(
+            f"color: #ffffff; font-size: {final_price_size}px; font-weight: 800; background: transparent;"
+        )
+        
+        # Update other labels
+        self.available_weight_label.setStyleSheet(f"color: #7c3aed; font-size: {label_size}px; font-weight: 500;")
+        self.energy_consumption_label.setStyleSheet(f"color: #7c3aed; font-size: {base_size}px; font-weight: 500;")
+    
     def update_translations(self):
         """Update all UI text after language change."""
         # Groups
@@ -978,7 +1520,6 @@ class CalculatorTab(QWidget):
         self.postprocess_label.setText(t("postprocess_time"))
         self.instructions_label.setText(t("drag_drop_hint"))
         self.final_price_title.setText(t("final_price"))
-        self.available_weight_label.setText(t("available_weight") + " - g")
         
         # Price summary section titles
         self.base_costs_title.setText(t("base_costs_title"))
@@ -995,6 +1536,8 @@ class CalculatorTab(QWidget):
         self.select_files_button.setText(t("add_files"))
         self.clear_button.setText(t("clear_all"))
         self.load_button.setText(t("load_btn"))
+        self.save_separately_checkbox.setText(t("save_prints_separately"))
+        self.save_separately_checkbox.setToolTip(t("save_prints_separately_tooltip"))
         
         # Result labels
         self.result_labels["material"].setText(t("material_cost"))
@@ -1008,8 +1551,33 @@ class CalculatorTab(QWidget):
         self.result_labels["shipping"].setText(t("shipping_cost"))
         self.result_labels["vat"].setText(t("vat"))
         
-        # Refresh filament combo (to update select_filament text)
+        # Refresh filament combo (to update select_filament text) - do this BEFORE updating multicolor display
+        # to preserve current_multicolor_filaments
         self.load_filaments()
+        
+        # Update multicolor display - restore visibility and update if multicolor is active
+        if self.current_multicolor_filaments:
+            # Multicolor is active - show multicolor display and update it
+            self.available_weight_label.setVisible(False)
+            self.multicolor_display.setVisible(True)
+            self.multicolor_display.update_multicolor_info(self.current_multicolor_filaments)
+            # Disable filament combo for multicolor
+            self.filament_combo.setEnabled(False)
+        else:
+            # Single filament or no selection - show normal available weight label
+            self.available_weight_label.setVisible(True)
+            self.multicolor_display.setVisible(False)
+            # Update available weight label if single filament is selected
+            if self.current_filament_id:
+                filament = get_filament_by_id(self.current_filament_id)
+                if filament:
+                    self.available_weight_label.setText(
+                        f"{t('available_weight')} {filament['current_weight']} g"
+                    )
+                else:
+                    self.available_weight_label.setText(t("available_weight") + " - g")
+            else:
+                self.available_weight_label.setText(t("available_weight") + " - g")
 
     def update_currency(self):
         """Update displayed prices after currency change."""

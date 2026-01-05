@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
     QSpinBox, QCheckBox, QDialogButtonBox, QMessageBox
 )
 from PyQt5.QtGui import QColor
+from PyQt5.QtCore import QEvent
 
 from utils.db_handler import add_filament, get_all_brands, get_spool_weight
 from utils.translations import t
@@ -50,6 +51,7 @@ class AddFilamentDialog(QDialog):
         self.brand_label_title = QLabel(t("brand_label"))
         brand_layout.addWidget(self.brand_label_title)
         self.brand_combo = QComboBox()
+        # Load brands initially (without calling on_brand_changed yet)
         brands = get_all_brands()
         self.brand_combo.addItems(brands)
         self.brand_combo.currentTextChanged.connect(self.on_brand_changed)
@@ -100,6 +102,27 @@ class AddFilamentDialog(QDialog):
         cancel_btn = button_box.button(QDialogButtonBox.Cancel)
         cancel_btn.setText(t("cancel"))
         layout.addWidget(button_box)
+    
+    def refresh_brands(self):
+        """Refresh the brands list in combo box."""
+        current_brand = self.brand_combo.currentText() if self.brand_combo.count() > 0 else None
+        self.brand_combo.clear()
+        brands = get_all_brands()
+        self.brand_combo.addItems(brands)
+        # Restore previous selection if it still exists
+        if current_brand and current_brand in brands:
+            index = self.brand_combo.findText(current_brand)
+            if index >= 0:
+                self.brand_combo.setCurrentIndex(index)
+        elif self.brand_combo.count() > 0:
+            # Only call on_brand_changed if checkbox is already initialized
+            if hasattr(self, 'without_spool_checkbox'):
+                self.on_brand_changed(self.brand_combo.currentText())
+    
+    def showEvent(self, event: QEvent):
+        """Handle show event to refresh brands list."""
+        super().showEvent(event)
+        self.refresh_brands()
 
     def choose_color(self):
         """Open color picker dialog."""
@@ -124,8 +147,11 @@ class AddFilamentDialog(QDialog):
 
     def on_brand_changed(self, brand: str):
         """Handle brand selection change."""
+        if not brand:
+            return
         spool_weight = get_spool_weight(brand)
-        if self.without_spool_checkbox.isChecked():
+        # Check if checkbox exists before accessing it
+        if hasattr(self, 'without_spool_checkbox') and self.without_spool_checkbox.isChecked():
             self.spool_info_label.setText(
                 t("spool_weight_info_no_sub").format(brand=brand, weight=spool_weight)
             )
@@ -133,15 +159,21 @@ class AddFilamentDialog(QDialog):
             self.spool_info_label.setText(
                 t("spool_weight_info").format(brand=brand, weight=spool_weight)
             )
-        self.update_net_weight()
+        # Only update net weight if weight_input exists
+        if hasattr(self, 'weight_input'):
+            self.update_net_weight()
 
     def update_net_weight(self):
         """Update net weight display."""
+        if not hasattr(self, 'brand_combo') or not hasattr(self, 'weight_input'):
+            return
         brand = self.brand_combo.currentText()
+        if not brand:
+            return
         spool_weight = get_spool_weight(brand)
         total_weight = self.weight_input.value()
 
-        if self.without_spool_checkbox.isChecked():
+        if hasattr(self, 'without_spool_checkbox') and self.without_spool_checkbox.isChecked():
             net_weight = total_weight
             self.net_weight_label.setText(
                 t("net_weight_display_no_spool").format(weight=net_weight)

@@ -23,7 +23,12 @@ class InventoryTab(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.main_window = None  # Will be set by MainWindow
         self.init_ui()
+    
+    def set_main_window(self, main_window):
+        """Set reference to main window for refreshing calculator tab."""
+        self.main_window = main_window
 
     def init_ui(self):
         """Initialize the inventory tab UI."""
@@ -214,6 +219,9 @@ class InventoryTab(QWidget):
         dialog = AddFilamentDialog(self)
         if dialog.exec_() == 1:  # QDialog.Accepted
             self.refresh_table()
+            # Refresh calculator tab filament list
+            if self.main_window:
+                self.main_window.refresh_calculator_filaments()
 
     def show_edit_filament_dialog(self):
         """Show dialog for editing selected filament."""
@@ -222,11 +230,17 @@ class InventoryTab(QWidget):
             dialog = EditFilamentDialog(filament_id, self)
             if dialog.exec_() == 1:  # QDialog.Accepted
                 self.refresh_table()
+                # Refresh calculator tab filament list
+                if self.main_window:
+                    self.main_window.refresh_calculator_filaments()
 
     def show_brands_dialog(self):
         """Show dialog for managing brands."""
         dialog = BrandsDialog(self)
+        dialog.set_main_window(self.main_window)  # Pass reference for refreshing calculator
         dialog.exec_()
+        # Refresh brand list in add filament dialog if it's open
+        # This is handled by reloading brands when dialog is shown
 
     def show_filament_history(self):
         """Show history dialog for selected filament."""
@@ -262,6 +276,9 @@ class InventoryTab(QWidget):
                 if delete_filament(filament_id):
                     QMessageBox.information(self, t("success"), t("filament_deleted"))
                     self.refresh_table()
+                    # Refresh calculator tab filament list
+                    if self.main_window:
+                        self.main_window.refresh_calculator_filaments()
                 else:
                     QMessageBox.warning(self, t("error"), t("delete_failed"))
             except Exception as e:

@@ -18,11 +18,24 @@ _current_language = "PL"
 # Current currency state
 _current_currency = "PLN"
 
+# Current font size state (base size multiplier)
+_current_font_size = "medium"  # "small", "medium", "large"
+
+# Font size definitions (base sizes in px)
+FONT_SIZES = {
+    "small": {"base": 11, "label": 11, "button": 12, "title": 10},
+    "medium": {"base": 13, "label": 13, "button": 13, "title": 11},
+    "large": {"base": 15, "label": 15, "button": 14, "title": 12}
+}
+
 # List of callbacks to notify when language changes
 _language_change_callbacks: List[Callable] = []
 
 # List of callbacks to notify when currency changes
 _currency_change_callbacks: List[Callable] = []
+
+# List of callbacks to notify when font size changes
+_font_size_change_callbacks: List[Callable] = []
 
 # Supported currencies with symbols and exchange rates (relative to PLN)
 CURRENCIES: Dict[str, Dict] = {
@@ -112,9 +125,18 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "select_filaments_multicolor": {"PL": "Wybierz filamenty dla druku multicolor", "EN": "Select Filaments for Multicolor Print"},
     "multicolor_info": {"PL": "Wykryto druk multicolor z {count} filamentami. Wybierz filament dla każdej wagi:", "EN": "Detected multicolor print with {count} filaments. Select filament for each weight:"},
     "filament_weight_label": {"PL": "Filament {num} ({weight} g):", "EN": "Filament {num} ({weight} g):"},
+    "filament_weight_label_single": {"PL": "Filament ({weight} g):", "EN": "Filament ({weight} g):"},
+    "select_filament_for_file_weight": {"PL": "Wybierz filament dla pliku {file}, waga {num}", "EN": "Select filament for file {file}, weight {num}"},
+    "select_filament_for_file": {"PL": "Wybierz filament dla pliku {file}", "EN": "Select filament for file {file}"},
     "select_filament_for_weight": {"PL": "Proszę wybrać filament dla wagi {num}.", "EN": "Please select filament for weight {num}."},
     "not_enough_filament_for_weight": {"PL": "Niewystarczająca waga dla filamentu {num}.\nWymagana: {weight} g\nDostępna ({brand}): {available} g", "EN": "Insufficient weight for filament {num}.\nRequired: {weight} g\nAvailable ({brand}): {available} g"},
+    "not_enough_filament_for_weight_single": {"PL": "Niewystarczająca waga dla filamentu.\nWymagana: {weight} g\nDostępna ({brand}): {available} g", "EN": "Insufficient weight for filament.\nRequired: {weight} g\nAvailable ({brand}): {available} g"},
     "multicolor_selected": {"PL": "Wybrano multicolor", "EN": "Multicolor selected"},
+    "save_prints": {"PL": "Zapisz wydruki", "EN": "Save Prints"},
+    "save_prints_separately": {"PL": "Zapisz obiekty osobno", "EN": "Save objects separately"},
+    "save_prints_separately_tooltip": {"PL": "Jeśli zaznaczone, każdy plik G-code zostanie zapisany jako osobny wydruk w historii", "EN": "If checked, each G-code file will be saved as a separate print in history"},
+    "save_prints_separately_question": {"PL": "Wykryto {count} plików G-code.\nCzy chcesz zapisać je osobno do historii?\n\nTak - każdy plik jako osobny wydruk\nNie - wszystkie pliki jako jeden wydruk", "EN": "Detected {count} G-code files.\nDo you want to save them separately to history?\n\nYes - each file as separate print\nNo - all files as one print"},
+    "prints_recorded_separately": {"PL": "Zapisano {count} wydruków osobno!\nŁączna waga: {total_weight} g\nŁączna cena: {total_price}", "EN": "Recorded {count} prints separately!\nTotal weight: {total_weight} g\nTotal price: {total_price}"},
     "ok": {"PL": "OK", "EN": "OK"},
     "cancel": {"PL": "Anuluj", "EN": "Cancel"},
     
@@ -266,6 +288,12 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "currency_eur": {"PL": "💰 Euro (EUR)", "EN": "💰 Euro (EUR)"},
     "currency_usd": {"PL": "💰 Dolar (USD)", "EN": "💰 Dollar (USD)"},
     "currency_gbp": {"PL": "💰 Funt (GBP)", "EN": "💰 Pound (GBP)"},
+    
+    # Font size
+    "font_size": {"PL": "Rozmiar czcionki", "EN": "Font Size"},
+    "font_size_small": {"PL": "Mała", "EN": "Small"},
+    "font_size_medium": {"PL": "Średnia", "EN": "Medium"},
+    "font_size_large": {"PL": "Duża", "EN": "Large"},
 }
 
 
@@ -365,6 +393,46 @@ def get_exchange_rate() -> float:
     return CURRENCIES[_current_currency]["rate"]
 
 
+# ============== Font Size Functions ==============
+
+def get_font_size() -> str:
+    """Get current font size setting."""
+    return _current_font_size
+
+
+def set_font_size(size: str):
+    """Set current font size and notify all registered callbacks."""
+    global _current_font_size
+    if size in FONT_SIZES:
+        _current_font_size = size
+        # Save preferences
+        save_preferences()
+        # Notify all registered callbacks
+        for callback in _font_size_change_callbacks:
+            try:
+                callback()
+            except Exception as e:
+                print(f"Error in font size change callback: {e}")
+
+
+def register_font_size_callback(callback: Callable):
+    """Register a callback to be called when font size changes."""
+    if callback not in _font_size_change_callbacks:
+        _font_size_change_callbacks.append(callback)
+
+
+def unregister_font_size_callback(callback: Callable):
+    """Unregister a font size change callback."""
+    if callback in _font_size_change_callbacks:
+        _font_size_change_callbacks.remove(callback)
+
+
+def get_font_size_px(size_type: str = "base") -> int:
+    """Get font size in pixels for current setting and type."""
+    sizes = FONT_SIZES.get(_current_font_size, FONT_SIZES["medium"])
+    return sizes.get(size_type, sizes["base"])
+
+
 def format_currency(value: float) -> str:
     """Format a value in the current currency."""
     converted = value * get_exchange_rate()
@@ -453,8 +521,8 @@ def convert_to_pln(value_current: float) -> float:
 
 
 def load_preferences():
-    """Load user preferences (language and currency) from file."""
-    global _current_language, _current_currency
+    """Load user preferences (language, currency, font size) from file."""
+    global _current_language, _current_currency, _current_font_size
     
     # Try to load from preferences file first
     if os.path.exists(PREFERENCES_FILE):
@@ -465,6 +533,8 @@ def load_preferences():
                     _current_language = prefs["language"]
                 if "currency" in prefs and prefs["currency"] in CURRENCIES:
                     _current_currency = prefs["currency"]
+                if "font_size" in prefs and prefs["font_size"] in FONT_SIZES:
+                    _current_font_size = prefs["font_size"]
                 return
         except Exception as e:
             print(f"Error loading preferences: {e}")
@@ -479,13 +549,15 @@ def load_preferences():
                 _current_language = prefs["language"]
             if "currency" in prefs and prefs["currency"] in CURRENCIES:
                 _current_currency = prefs["currency"]
+            if "font_size" in prefs and prefs["font_size"] in FONT_SIZES:
+                _current_font_size = prefs["font_size"]
     except Exception as e:
         print(f"Error loading preferences from config: {e}")
 
 
 def save_preferences():
-    """Save user preferences (language and currency) to file."""
-    global _current_language, _current_currency
+    """Save user preferences (language, currency, font size) to file."""
+    global _current_language, _current_currency, _current_font_size
     
     try:
         # Ensure directory exists
@@ -494,7 +566,8 @@ def save_preferences():
         # Save to preferences file
         prefs = {
             "language": _current_language,
-            "currency": _current_currency
+            "currency": _current_currency,
+            "font_size": _current_font_size
         }
         
         with open(PREFERENCES_FILE, 'w', encoding='utf-8') as f:
@@ -508,6 +581,7 @@ def save_preferences():
                 config["preferences"] = {}
             config["preferences"]["language"] = _current_language
             config["preferences"]["currency"] = _current_currency
+            config["preferences"]["font_size"] = _current_font_size
             ConfigManager.save_config(config)
         except Exception as e:
             print(f"Error saving preferences to config: {e}")
